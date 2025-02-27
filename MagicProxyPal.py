@@ -1,5 +1,6 @@
 import glob
 import os
+import tkinter
 from tkinter import *
 import requests
 from CardDatabase import CardDatabase
@@ -13,29 +14,35 @@ class MagicProxyPal:
         self.root = Tk()
         self.root.title("Magic Proxy Pal")
 
-        self.frame = Frame(self.root, bd=3, height=100, relief=RAISED, width=100)
+        parent_menu = Menu(self.root)
+        self.root.config(menu=parent_menu)
+        file_menu = Menu(parent_menu, tearoff=0)
+        parent_menu.add_cascade(label="File", menu=file_menu)
+        file_menu.add_command(label="Help", command=self.show_help)
+        file_menu.add_command(label="Exit", command=self.root.quit)
 
-        self.frame.grid(column=0, row=0)
-
-        self.right_frame = Frame(self.root, bd=3, height=100, relief=RAISED, width=50)
-        self.right_frame.grid(column=1, row=0, rowspan=2)
+        self.right_frame = Frame(self.root, height=100, relief=RAISED, width=50)
+        self.right_frame.grid(column=1, row=0, rowspan=2, padx=5, pady=5)
         self.generate_pdf_button = Button(self.right_frame, text="Generate PDF", command=self.pdf_generate_button_click)
         self.generate_pdf_button.pack()
         delete_images_button = Button(self.right_frame, text="Delete Saved Images",
                                       command=self.delete_images_button_pressed)
         delete_images_button.pack()
+        self.update_database_button = Button(self.right_frame, text="Update Database", command=self.update_catalog)
+        self.update_database_button.pack()
 
-        self.label = Label(self.frame, text="Deck List")
+        self.leftFrame = Frame(self.root, relief=RAISED)
+        self.leftFrame.grid(column=0, row=0)
+        self.label = Label(self.leftFrame, text="Deck List")
         self.label.pack()
-        self.deck_entry = Text(self.frame, height=20, width=80)
+        self.deck_entry = Text(self.leftFrame, height=20, width=80)
         self.deck_entry.pack()
 
-
-        self.output_frame = Frame(self.root, bd=3, height=100, relief=RAISED, width=200)
-        self.output_frame.grid(row=1, column=0)
+        self.output_frame = Frame(self.root, relief=RAISED)
+        self.output_frame.grid(row=1, column=0, padx=5, pady=5)
         self.output_label = Label(self.output_frame, text="Output")
         self.output_label.pack()
-        self.output_text = Text(self.output_frame, height=10, width=100, bg="black", fg="white")
+        self.output_text = Text(self.output_frame, height=10, bg="black", fg="white")
         self.output_text.pack()
         self.cards = []
         self.missed_card_names = []
@@ -45,11 +52,10 @@ class MagicProxyPal:
         self.database.startup_db()
         self.pdfHandler = PdfHandler()
 
-
     def delete_images_button_pressed(self):
         for file in glob.glob("images/*.jpg"):
             os.remove(file)
-        self.append_log("Deleted contents of images folder.")
+        self.append_log("Deleted contents of images folder.\n")
 
     def pdf_generate_button_click(self):
         self.missed_card_names = []
@@ -123,6 +129,37 @@ class MagicProxyPal:
             self.append_log(f"Error: {response.status_code} when downloading image for {str(card)}\n")
             self.add_card_to_missed_list(str(card))
 
+    def update_catalog(self):
+        # Request to get latest of bulk downloads
+        if self.database.db_connection is not None:
+            self.database.db_connection.close()
+        if os.path.exists("res/data/catalog.json"):
+            os.remove("res/data/catalog.json")
+        if os.path.exists("res/data/CardDatabase.db"):
+            os.remove("res/data/CardDatabase.db")
+        self.append_log("Deleted old catalog and database\n")
+        response = requests.get(' https://api.scryfall.com/bulk-data')
+        if response.status_code != 200:
+            self.append_log("Failed to get bulk data from scryfall. Better get the catalog yourself.\n")
+            return
+        response_data = response.json()["data"]
+        catalog_uri = None
+        x = 0
+        self.append_log("Retrieved Location of newest catalog.\nDownloading catalog now.\n")
+        while x < len(response_data) and catalog_uri is None:
+            if response_data[x].get("type") == "default_cards":
+                catalog_uri = response_data[x].get("download_uri")
+        with requests.get(catalog_uri, stream=True) as response:
+            response.raise_for_status()
+            with open("res/data/catalog.json", "wb") as file:
+                for chunk in response.iter_content(chunk_size=8192):
+                    file.write(chunk)
+        self.append_log("New catalog downloaded.\nPopulation database.\n")
+        self.database.startup_db()
+        self.append_log("Database populated successfully.\n")
+
+
+
     def run(self):
         self.root.mainloop()
 
@@ -143,3 +180,9 @@ class MagicProxyPal:
     def add_card_fallback_list(self, card_name):
         if card_name not in self.missed_card_names:
             self.fallback_card_names.append(card_name)
+
+    def show_help(self):
+        help_window = tkinter.Toplevel()
+        help_window.title("Magic Proxy Pal Help")
+        help_usage_label_1 = Label(help_window, text="Copy a deck list from tappedout then paste it into the deck list"
+                                                     "to generate a pdf")
