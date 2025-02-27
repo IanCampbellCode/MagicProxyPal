@@ -175,3 +175,5 @@ images/*
 *.pdf
 *.db
 *catalog.json
+
+.idea/*
